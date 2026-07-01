@@ -66,8 +66,10 @@ public class AiService {
 	                new GeminiContent("user", List.of(new GeminiPart(prompt)))
 	        ));
 
-	        int maxRetries = 3;
-	        int waitMs = 2000;
+//	        int maxRetries = 3;
+	        int maxRetries = 2;
+//	        int waitMs = 2000;
+	        int waitMs = 1000; // start with 1 second instead of 2
 
 	        for (int attempt = 1; attempt <= maxRetries; attempt++) {
 	            try {
