@@ -46,44 +46,67 @@ public class AiService {
 	        LocalDate effectiveStart = (startDate != null) ? startDate : today.withDayOfMonth(1);
 	        LocalDate effectiveEnd = (endDate != null) ? endDate : today;
 
-	        List<Expense> expenses = expenseRepository.findByUserAndTransactionDateBetween(currentUser, effectiveStart, effectiveEnd);
+	        List<Expense> expenses = expenseRepository.findByUserAndTransactionDateBetween(
+	                currentUser, effectiveStart, effectiveEnd);
 
 	        String summary = buildSpendingSummary(expenses);
 
-	        String prompt = "Here is the user's spending summary from " + effectiveStart + " to " + effectiveEnd + ":\n"
-	                + summary
+	        String prompt = "Here is the user's spending summary from " + effectiveStart
+	                + " to " + effectiveEnd + ":\n" + summary
 	                + "\n\nNow answer this question based on that data: " + question;
-
 
 	        Map<String, Object> requestBody = new HashMap<>();
 	        requestBody.put("system_instruction", Map.of(
 	                "parts", List.of(new GeminiPart(
-	                        "You are a helpful personal finance assistant. All amounts are in Indian Rupees (INR), and you must always use the ₹ symbol when stating amounts. Answer clearly and concisely based only on the spending data provided."))
+	                        "You are a helpful personal finance assistant. All amounts are in Indian Rupees (INR), "
+	                        + "and you must always use the ₹ symbol when stating amounts. "
+	                        + "Answer clearly and concisely based only on the spending data provided."))
 	        ));
 	        requestBody.put("contents", List.of(
 	                new GeminiContent("user", List.of(new GeminiPart(prompt)))
 	        ));
 
-	        String rawResponse;
-	        try {
-	            rawResponse = restClient.post()
-	                    .uri(apiUrl)
-	                    .header("x-goog-api-key", apiKey)
-	                    .contentType(MediaType.APPLICATION_JSON)
-	                    .body(requestBody)
-	                    .retrieve()
-	                    .body(String.class);
-	        } catch (Exception e) {
-	        	System.out.println("DEBUG - Gemini call failed: " + e.getMessage());
-	            return "Sorry, the AI assistant is temporarily unavailable. Please try again in a moment.";
+	        int maxRetries = 3;
+	        int waitMs = 2000;
+
+	        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+	            try {
+	                String rawResponse = restClient.post()
+	                        .uri(apiUrl)
+	                        .header("x-goog-api-key", apiKey)
+	                        .contentType(MediaType.APPLICATION_JSON)
+	                        .body(requestBody)
+	                        .retrieve()
+	                        .body(String.class);
+
+	                JsonNode root = objectMapper.readTree(rawResponse);
+	                return root.path("candidates")
+	                           .path(0)
+	                           .path("content")
+	                           .path("parts")
+	                           .path(0)
+	                           .path("text")
+	                           .asText();
+
+	            } catch (Exception e) {
+	                System.out.println("Gemini attempt " + attempt + " failed: " + e.getMessage());
+
+	                if (attempt == maxRetries) {
+	                    return "The AI assistant is experiencing high demand right now. "
+	                            + "Please wait a moment and try again.";
+	                }
+
+	                try {
+	                    Thread.sleep(waitMs);
+	                    waitMs *= 2;
+	                } catch (InterruptedException ie) {
+	                    Thread.currentThread().interrupt();
+	                    return "Request interrupted. Please try again.";
+	                }
+	            }
 	        }
 
-	        try {
-	            JsonNode root = objectMapper.readTree(rawResponse);
-	            return root.path("candidates").path(0).path("content").path("parts").path(0).path("text").asText();
-	        } catch (Exception e) {
-	            throw new RuntimeException("Failed to parse Gemini response", e);
-	        }
+	        return "The AI assistant is temporarily unavailable.";
 	    }
     
     
